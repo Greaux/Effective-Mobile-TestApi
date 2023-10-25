@@ -17,5 +17,6 @@ FROM alpine:3.14
 RUN apk --no-cache add ca-certificates
 
 COPY --from=build /app/app .
+COPY --from=build /app/.env .
 
 CMD ["./app"]

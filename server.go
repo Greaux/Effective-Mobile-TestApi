@@ -6,10 +6,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -29,23 +31,21 @@ type App struct {
 }
 
 func (app *App) Initialize() {
-	/*
-		err := godotenv.Load()
-		if err != nil {
-			log.Fatal("Error loading .env file")
-		}
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 
-		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
-			godotenv.Load("DB_HOST"),
-			godotenv.Load("DB_USER"),
-			godotenv.Load("DB_PASSWORD"),
-			godotenv.Load("DB_NAME"),
-			godotenv.Load("DB_PORT"),
-			godotenv.Load("DB_SSL_MODE"),
-		)
-	*/
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"),
+		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_SSL_MODE"),
+	)
 
-	dsn := "host=db user=postgres password=XDDDPASSW0RD dbname=EFMOBILPersons port=5432 sslmode=disable"
+	// dsn := "host=db user=postgres password=XDDDPASSW0RD dbname=EFMOBILPersons port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
@@ -145,6 +145,11 @@ func (app *App) AddPerson(c *fiber.Ctx) error {
 	surname := c.FormValue("surname")
 	patronymic := c.FormValue("patronymic")
 
+	if len(name) == 0 || len(surname) == 0 {
+		c.Status(http.StatusBadRequest)
+		return c.SendString("Необходимо указать фамилию и имя.")
+	}
+
 	// Обогащаем данные о человеке
 	age, err := GetAge(name)
 	if err != nil {
@@ -190,6 +195,12 @@ func (app *App) DeleteData(c *fiber.Ctx) error {
 	uid := c.FormValue("id")
 	var person Person
 
+	if uid == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "ID is required",
+		})
+	}
+
 	if err := app.DB.Where("id = ?", uid).Delete(&person).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -213,8 +224,17 @@ func (app *App) UpdateData(c *fiber.Ctx) error {
 
 	// Находим запись в базе данных по ID
 	var person Person
+
+	if name == "" && surname == "" && patronymic == "" && gender == "" && age == "" && nationality == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "You must specify at least one parameter",
+		})
+	}
+
 	if err := app.DB.First(&person, id).Error; err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	if name != "" {
@@ -238,7 +258,9 @@ func (app *App) UpdateData(c *fiber.Ctx) error {
 		// Преобразуем возраст в число
 		ageInt, err := strconv.Atoi(age)
 		if err != nil {
-			return err
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
 		person.Age = ageInt
 	}
@@ -249,7 +271,9 @@ func (app *App) UpdateData(c *fiber.Ctx) error {
 
 	// Сохраняем изменения в базе данных
 	if err := app.DB.Save(&person).Error; err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	// Возвращаем успешный ответ
@@ -268,6 +292,12 @@ func (app *App) GetData(c *fiber.Ctx) error {
 	limit := c.FormValue("limit")
 	page := c.FormValue("page")
 
+	if name == "" && surname == "" && patronymic == "" && gender == "" && age == "" && nationality == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "You must specify at least one parameter",
+		})
+	}
+
 	if limit == "" {
 		limit = "10"
 	}
@@ -279,12 +309,16 @@ func (app *App) GetData(c *fiber.Ctx) error {
 	limitInt, err := strconv.Atoi(limit)
 	if err != nil {
 		// Обработка ошибки преобразования limit
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil {
 		// Обработка ошибки преобразования page
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	// Вычисляем смещение (offset) на основе значения page и limit
@@ -317,13 +351,17 @@ func (app *App) GetData(c *fiber.Ctx) error {
 	if age != "" {
 		ageInt, err := strconv.Atoi(age)
 		if err != nil {
-			return err
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
 		query = query.Where("age = ?", ageInt)
 	}
 
 	if err := query.Find(&results).Error; err != nil {
-		return err
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	return c.JSON(results)
@@ -346,11 +384,21 @@ func main() {
 	appFiber.Delete("/database", app.DeleteData)
 	appFiber.Post("/database", app.AddPerson)
 
-	log.Fatal(appFiber.Listen(":3000"))
+	// Получение порта и ip из .env
+	port := os.Getenv("APP_PORT")
+	ip := os.Getenv("APP_ADDRESS")
+
+	if port == "" {
+		port = "3000"
+	}
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
+
+	log.Fatal(appFiber.Listen(ip + ":" + port))
 }
 
 //// TODO: |||
-//// env   |||
-//// logs  |||
+//// logs 50/50 |||
 //// docs  |||
-//// comms |||
+//// comms написать/переписать |||
