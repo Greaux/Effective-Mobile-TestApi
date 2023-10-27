@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// общая структура для БД/записей
 type Person struct {
 	ID          uint   `gorm:"primaryKey"`
 	Name        string `gorm:"column:name"`
@@ -31,10 +32,21 @@ type App struct {
 }
 
 func (app *App) Initialize() {
+
+	// пробуем открыть .env который лежит локально
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+
+	/*
+		logmod := os.Getenv("LOGGING")
+
+		if logmod == "DEBUG" {
+		}
+		if logmod == "INFO" {
+		}
+	*/
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		os.Getenv("DB_HOST"),
@@ -45,7 +57,8 @@ func (app *App) Initialize() {
 		os.Getenv("DB_SSL_MODE"),
 	)
 
-	// dsn := "host=db user=postgres password=XDDDPASSW0RD dbname=EFMOBILPersons port=5432 sslmode=disable"
+	//Подключаемся к БД (можно расскоментить если хотит захардкодить вместо .env)
+	//dsn := "host=db user=postgres password=XDDDPASSW0RD dbname=EFMOBILPersons port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
@@ -57,11 +70,13 @@ func (app *App) Initialize() {
 	app.DB.AutoMigrate(&Person{})
 }
 
+// Страница затычка (проверять запущен сервер или нет)
 func (app *App) MainPage(c *fiber.Ctx) error {
 	c.Status(http.StatusOK)
 	return c.SendString("Тут ничего нет.")
 }
 
+// запрос к АПИшке для получения возраста
 func GetAge(name string) (int, error) {
 	ageAPIURL := fmt.Sprintf("https://api.agify.io/?name=%s", name)
 	ageResponse, err := http.Get(ageAPIURL)
@@ -86,6 +101,7 @@ func GetAge(name string) (int, error) {
 	return ageResult.Age, nil
 }
 
+// запрос  к АПИшке для получения национальности (берём самое вероятное)
 func GetNationality(name string) (string, error) {
 	nationalityAPIURL := fmt.Sprintf("https://api.nationalize.io/?name=%s", name)
 	nationalityResponse, err := http.Get(nationalityAPIURL)
@@ -116,6 +132,7 @@ func GetNationality(name string) (string, error) {
 	return "", nil
 }
 
+// Запрос получения пола по АПИшке
 func GetGender(name string) (string, error) {
 	genderAPIURL := fmt.Sprintf("https://api.genderize.io/?name=%s", name)
 	genderResponse, err := http.Get(genderAPIURL)
@@ -140,6 +157,7 @@ func GetGender(name string) (string, error) {
 	return genderResult.Gender, nil
 }
 
+// Добавление человека в БД
 func (app *App) AddPerson(c *fiber.Ctx) error {
 	name := c.FormValue("name")
 	surname := c.FormValue("surname")
@@ -175,6 +193,7 @@ func (app *App) AddPerson(c *fiber.Ctx) error {
 		Nationality: nationality,
 	}
 
+	// Записываем результат в БД
 	result := app.DB.Create(&person)
 	if result.Error != nil {
 		// Обработка ошибки сохранения в базе данных
@@ -191,6 +210,7 @@ func (app *App) AddPerson(c *fiber.Ctx) error {
 
 }
 
+// Функция удаления записи человека из БД (по id)
 func (app *App) DeleteData(c *fiber.Ctx) error {
 	uid := c.FormValue("id")
 	var person Person
@@ -213,6 +233,7 @@ func (app *App) DeleteData(c *fiber.Ctx) error {
 	})
 }
 
+// функция изменения записи в БД
 func (app *App) UpdateData(c *fiber.Ctx) error {
 	id := c.FormValue("id")
 	name := c.FormValue("name")
@@ -225,12 +246,14 @@ func (app *App) UpdateData(c *fiber.Ctx) error {
 	// Находим запись в базе данных по ID
 	var person Person
 
+	// проверка перед запросом, чтоб не нагружать БД
 	if name == "" && surname == "" && patronymic == "" && gender == "" && age == "" && nationality == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "You must specify at least one parameter",
 		})
 	}
 
+	// получаем запись с БД
 	if err := app.DB.First(&person, id).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -277,7 +300,9 @@ func (app *App) UpdateData(c *fiber.Ctx) error {
 	}
 
 	// Возвращаем успешный ответ
-	return c.SendString("Данные успешно изменены")
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Данные успешно изменены",
+	})
 }
 
 func (app *App) GetData(c *fiber.Ctx) error {
@@ -292,6 +317,7 @@ func (app *App) GetData(c *fiber.Ctx) error {
 	limit := c.FormValue("limit")
 	page := c.FormValue("page")
 
+	// проверка перед запросом, чтоб не нагружать БД
 	if name == "" && surname == "" && patronymic == "" && gender == "" && age == "" && nationality == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "You must specify at least one parameter",
@@ -313,6 +339,7 @@ func (app *App) GetData(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
+
 	pageInt, err := strconv.Atoi(page)
 	if err != nil {
 		// Обработка ошибки преобразования page
@@ -372,12 +399,9 @@ func main() {
 
 	time.Sleep(2 * time.Second)
 	app.Initialize()
-
 	appFiber := fiber.New()
 
 	//в Процессе
-
-	// Сделано
 	appFiber.Get("/database", app.GetData)
 	appFiber.Post("/database/edit", app.UpdateData)
 	appFiber.Get("/", app.MainPage)
@@ -390,9 +414,6 @@ func main() {
 
 	if port == "" {
 		port = "3000"
-	}
-	if ip == "" {
-		ip = "127.0.0.1"
 	}
 
 	log.Fatal(appFiber.Listen(ip + ":" + port))
